@@ -1,0 +1,53 @@
+## Chaos Mesh Helm values
+## Chart: chaos-mesh/chaos-mesh
+## Namespace: chaos-mesh
+
+## Chaos Mesh controller
+controllerManager:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+## Chaos Daemon runs on each node to apply chaos
+chaosDaemon:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  runtime: containerd
+  socketPath: /run/containerd/containerd.sock
+
+## Chaos Dashboard UI
+dashboard:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    type: ClusterIP
+    port: 2333
+
+## RBAC
+rbac:
+  create: true
+
+## DNS server for Chaos Mesh DNS chaos
+dnsServer:
+  create: true
+
+## Prometheus ServiceMonitor for Chaos Mesh metrics
+prometheus:
+  create: false

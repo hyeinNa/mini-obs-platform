@@ -1,0 +1,57 @@
+## Jaeger Helm values
+## Chart: jaegertracing/jaeger
+## Namespace: tracing
+## Mode: All-in-one (memory storage, MVP)
+
+provisionDataStore:
+  cassandra: false
+  elasticsearch: false
+  kafka: false
+
+allInOne:
+  enabled: true
+  image: jaegertracing/all-in-one
+  tag: "1.55"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+  args:
+    - "--memory.max-traces=10000"
+    - "--collector.otlp.grpc.host-port=:4317"
+    - "--collector.otlp.http.host-port=:4318"
+  env:
+    - name: SPAN_STORAGE_TYPE
+      value: memory
+
+collector:
+  enabled: false
+
+query:
+  enabled: false
+
+agent:
+  enabled: false
+
+ingester:
+  enabled: false
+
+storage:
+  type: memory
+
+hotrod:
+  enabled: false
+
+spark:
+  enabled: false
+
+service:
+  allInOne:
+    type: ClusterIP
+
+## Expose Jaeger UI via NodePort
+## The query UI port is served from the all-in-one pod on 16686
+## We create a separate NodePort service via manifests/apps

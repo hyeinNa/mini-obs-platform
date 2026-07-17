@@ -1,0 +1,419 @@
+{
+  "version": "1.0",
+  "project": "mini-obs-platform",
+  "description": "K8s 인프라 구성 모델 - 샘플 앱, 모니터링 스택, 트레이싱 스택, GitOps 구성",
+  "namespaces": [
+    {
+      "name": "observability-demo",
+      "purpose": "샘플 마이크로서비스 (frontend-svc, order-svc, inventory-svc)"
+    },
+    {
+      "name": "monitoring",
+      "purpose": "메트릭/로그/알림 스택 (Prometheus, Alertmanager, Grafana, Loki, Fluent Bit)"
+    },
+    {
+      "name": "tracing",
+      "purpose": "분산 트레이싱 스택 (Jaeger, OTel Collector)"
+    },
+    {
+      "name": "chaos-mesh",
+      "purpose": "장애 시뮬레이션 (Chaos Mesh Controller)"
+    },
+    {
+      "name": "argocd",
+      "purpose": "GitOps 배포 자동화 (ArgoCD)"
+    }
+  ],
+  "deployments": [
+    {
+      "name": "frontend-svc",
+      "namespace": "observability-demo",
+      "image_repo": "ghcr.io/<owner>/mini-obs-frontend-svc",
+      "image_tag_managed_by": "cd-pipeline",
+      "language": "Go 1.22",
+      "replicas": 1,
+      "container_port": 8080,
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "64Mi"},
+        "limits": {"cpu": "200m", "memory": "128Mi"}
+      },
+      "env_vars": [
+        {"name": "ORDER_SVC_URL", "value": "http://order-svc.observability-demo.svc.cluster.local:8081"},
+        {"name": "INVENTORY_SVC_URL", "value": "http://inventory-svc.observability-demo.svc.cluster.local:8082"},
+        {"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "http://otel-collector.tracing.svc.cluster.local:4317"},
+        {"name": "OTEL_SERVICE_NAME", "value": "frontend-svc"}
+      ],
+      "probes": {
+        "liveness": {"path": "/health", "port": 8080, "initial_delay_seconds": 10},
+        "readiness": {"path": "/health", "port": 8080, "initial_delay_seconds": 5}
+      },
+      "prometheus_annotations": {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/port": "8080",
+        "prometheus.io/path": "/metrics"
+      }
+    },
+    {
+      "name": "order-svc",
+      "namespace": "observability-demo",
+      "image_repo": "ghcr.io/<owner>/mini-obs-order-svc",
+      "image_tag_managed_by": "cd-pipeline",
+      "language": "Python 3.11 + FastAPI",
+      "replicas": 1,
+      "container_port": 8081,
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "128Mi"},
+        "limits": {"cpu": "300m", "memory": "256Mi"}
+      },
+      "env_vars": [
+        {"name": "INVENTORY_SVC_URL", "value": "http://inventory-svc.observability-demo.svc.cluster.local:8082"},
+        {"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "http://otel-collector.tracing.svc.cluster.local:4317"},
+        {"name": "OTEL_SERVICE_NAME", "value": "order-svc"}
+      ],
+      "prometheus_annotations": {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/port": "8081",
+        "prometheus.io/path": "/metrics"
+      }
+    },
+    {
+      "name": "inventory-svc",
+      "namespace": "observability-demo",
+      "image_repo": "ghcr.io/<owner>/mini-obs-inventory-svc",
+      "image_tag_managed_by": "cd-pipeline",
+      "language": "Python 3.11 + FastAPI",
+      "replicas": 1,
+      "container_port": 8082,
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "128Mi"},
+        "limits": {"cpu": "300m", "memory": "256Mi"}
+      },
+      "env_vars": [
+        {"name": "OTEL_EXPORTER_OTLP_ENDPOINT", "value": "http://otel-collector.tracing.svc.cluster.local:4317"},
+        {"name": "OTEL_SERVICE_NAME", "value": "inventory-svc"}
+      ],
+      "prometheus_annotations": {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/port": "8082",
+        "prometheus.io/path": "/metrics"
+      }
+    }
+  ],
+  "services": [
+    {"name": "frontend-svc", "namespace": "observability-demo", "port": 8080, "type": "ClusterIP"},
+    {"name": "order-svc", "namespace": "observability-demo", "port": 8081, "type": "ClusterIP"},
+    {"name": "inventory-svc", "namespace": "observability-demo", "port": 8082, "type": "ClusterIP"},
+    {"name": "otel-collector", "namespace": "tracing", "ports": [4317, 4318, 8889], "type": "ClusterIP"},
+    {"name": "jaeger-query", "namespace": "tracing", "port": 16686, "node_port": 30001, "type": "NodePort"},
+    {"name": "jaeger-collector", "namespace": "tracing", "port": 14250, "type": "ClusterIP"},
+    {"name": "loki", "namespace": "monitoring", "port": 3100, "type": "ClusterIP"},
+    {"name": "prometheus-operated", "namespace": "monitoring", "port": 9090, "type": "ClusterIP"},
+    {"name": "alertmanager-operated", "namespace": "monitoring", "port": 9093, "type": "ClusterIP"},
+    {"name": "grafana", "namespace": "monitoring", "port": 3000, "node_port": 30000, "type": "NodePort"},
+    {"name": "argocd-server", "namespace": "argocd", "port": 443, "node_port": 30002, "type": "NodePort"}
+  ],
+  "helm_charts": [
+    {
+      "name": "kube-prometheus-stack",
+      "namespace": "monitoring",
+      "chart": "prometheus-community/kube-prometheus-stack",
+      "values_path": "infra/helm/kube-prometheus-stack/values.yaml",
+      "components": ["Prometheus", "Alertmanager", "Grafana", "kube-state-metrics", "node-exporter"],
+      "key_settings": {
+        "grafana_enabled": true,
+        "grafana_admin_password": "admin",
+        "grafana_persistence_enabled": false,
+        "prometheus_retention": "24h",
+        "service_monitor_selector_nil_uses_helm_values": false,
+        "rule_selector_nil_uses_helm_values": false
+      }
+    },
+    {
+      "name": "loki-stack",
+      "namespace": "monitoring",
+      "chart": "grafana/loki-stack",
+      "values_path": "infra/helm/loki-stack/values.yaml",
+      "components": ["Loki"],
+      "key_settings": {
+        "loki_port": 3100,
+        "retention_period": "168h"
+      }
+    },
+    {
+      "name": "fluent-bit",
+      "namespace": "monitoring",
+      "chart": "fluent/fluent-bit",
+      "values_path": "infra/helm/fluent-bit/values.yaml",
+      "components": ["Fluent Bit DaemonSet"],
+      "key_settings": {
+        "input_path": "/var/log/containers/*.log",
+        "loki_output_host": "loki.monitoring.svc.cluster.local",
+        "loki_output_port": 3100,
+        "merge_log": true
+      }
+    },
+    {
+      "name": "jaeger",
+      "namespace": "tracing",
+      "chart": "jaegertracing/jaeger",
+      "values_path": "infra/helm/jaeger/values.yaml",
+      "components": ["Jaeger All-in-one"],
+      "key_settings": {
+        "storage_type": "memory",
+        "collector_port": 14250,
+        "query_ui_port": 16686
+      }
+    },
+    {
+      "name": "otel-collector",
+      "namespace": "tracing",
+      "chart": "open-telemetry/opentelemetry-collector",
+      "values_path": "infra/helm/otel-collector/values.yaml",
+      "components": ["OTel Collector (otelcol-contrib)"],
+      "key_settings": {
+        "otlp_grpc_port": 4317,
+        "otlp_http_port": 4318,
+        "prometheus_export_port": 8889,
+        "memory_limit_mib": 256
+      }
+    },
+    {
+      "name": "chaos-mesh",
+      "namespace": "chaos-mesh",
+      "chart": "chaos-mesh/chaos-mesh",
+      "values_path": "infra/helm/chaos-mesh/values.yaml",
+      "components": ["Chaos Mesh Controller", "Chaos Dashboard"],
+      "key_settings": {
+        "dashboard_enabled": true
+      }
+    }
+  ],
+  "argocd_applications": [
+    {
+      "name": "app-of-apps",
+      "namespace": "argocd",
+      "type": "app-of-apps",
+      "source_path": "infra/argocd/apps",
+      "sync_policy": {
+        "automated": true,
+        "prune": true,
+        "self_heal": true
+      },
+      "manages": [
+        "kube-prometheus-stack",
+        "loki-stack",
+        "fluent-bit",
+        "jaeger",
+        "otel-collector",
+        "chaos-mesh",
+        "sample-apps"
+      ]
+    }
+  ],
+  "chaos_experiments": [
+    {
+      "name": "order-svc-network-delay",
+      "kind": "NetworkChaos",
+      "namespace": "observability-demo",
+      "file": "infra/manifests/chaos-experiments/network-delay.yaml",
+      "target": {
+        "namespace": "observability-demo",
+        "label": {"app": "order-svc"}
+      },
+      "spec": {
+        "action": "delay",
+        "latency": "500ms",
+        "jitter": "100ms",
+        "duration": "5m"
+      },
+      "observation_points": [
+        "Grafana RED 대시보드 P99 레이턴시 상승",
+        "HighP99Latency 알림 트리거 (2분 후)"
+      ]
+    },
+    {
+      "name": "inventory-svc-pod-kill",
+      "kind": "PodChaos",
+      "namespace": "observability-demo",
+      "file": "infra/manifests/chaos-experiments/pod-kill.yaml",
+      "target": {
+        "namespace": "observability-demo",
+        "label": {"app": "inventory-svc"}
+      },
+      "spec": {
+        "action": "pod-kill",
+        "mode": "one",
+        "duration": "1m"
+      },
+      "observation_points": [
+        "Grafana inventory-svc 에러율 100% 상승",
+        "PodNotReady + HighErrorRate 알림 동시 트리거",
+        "Jaeger에서 실패한 trace span 확인"
+      ]
+    }
+  ],
+  "configmaps": [
+    {
+      "name": "otel-collector-config",
+      "namespace": "tracing",
+      "description": "OTel Collector receivers/processors/exporters/pipelines 설정",
+      "managed_by": "helm-otel-collector"
+    },
+    {
+      "name": "fluent-bit-config",
+      "namespace": "monitoring",
+      "description": "Fluent Bit INPUT/FILTER/OUTPUT 파이프라인 설정",
+      "managed_by": "helm-fluent-bit"
+    },
+    {
+      "name": "grafana-datasources",
+      "namespace": "monitoring",
+      "description": "Grafana 데이터소스 자동 등록 (Prometheus, Loki, Jaeger)",
+      "managed_by": "helm-kube-prometheus-stack",
+      "mount_path": "/etc/grafana/provisioning/datasources/"
+    },
+    {
+      "name": "grafana-dashboard-red-metrics",
+      "namespace": "monitoring",
+      "description": "RED 메트릭 대시보드 JSON",
+      "source_file": "infra/grafana/dashboards/red-metrics.json",
+      "mount_path": "/var/lib/grafana/dashboards/custom/"
+    },
+    {
+      "name": "grafana-dashboard-service-map",
+      "namespace": "monitoring",
+      "description": "서비스 토폴로지 대시보드 JSON",
+      "source_file": "infra/grafana/dashboards/service-map.json",
+      "mount_path": "/var/lib/grafana/dashboards/custom/"
+    },
+    {
+      "name": "grafana-dashboard-logs-explorer",
+      "namespace": "monitoring",
+      "description": "로그+트레이스 탐색 대시보드 JSON",
+      "source_file": "infra/grafana/dashboards/logs-explorer.json",
+      "mount_path": "/var/lib/grafana/dashboards/custom/"
+    }
+  ],
+  "prometheus_rules": [
+    {
+      "name": "mini-obs-app-alerts",
+      "namespace": "observability-demo",
+      "kind": "PrometheusRule",
+      "file": "infra/manifests/prometheus-rules/app-alerts.yaml",
+      "rules": [
+        {
+          "alert": "HighErrorRate",
+          "expr": "rate(http_requests_total{status_code=~\"5..\",namespace=\"observability-demo\"}[5m]) / rate(http_requests_total{namespace=\"observability-demo\"}[5m]) > 0.05",
+          "for": "2m",
+          "severity": "critical"
+        },
+        {
+          "alert": "HighP99Latency",
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 1.0",
+          "for": "2m",
+          "severity": "warning"
+        },
+        {
+          "alert": "PodNotReady",
+          "expr": "kube_pod_status_ready{condition=\"true\",namespace=\"observability-demo\"} == 0",
+          "for": "1m",
+          "severity": "critical"
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "common": [
+      {
+        "name": "http_requests_total",
+        "type": "counter",
+        "labels": ["method", "path", "status_code", "service"],
+        "description": "총 HTTP 요청 수"
+      },
+      {
+        "name": "http_request_duration_seconds",
+        "type": "histogram",
+        "labels": ["method", "path", "service"],
+        "buckets": [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+        "description": "HTTP 요청 응답시간 분포"
+      }
+    ],
+    "order_svc": [
+      {
+        "name": "orders_created_total",
+        "type": "counter",
+        "labels": [],
+        "description": "생성된 총 주문 수"
+      },
+      {
+        "name": "order_processing_duration_seconds",
+        "type": "histogram",
+        "labels": [],
+        "description": "주문 처리 시간 분포"
+      }
+    ],
+    "inventory_svc": [
+      {
+        "name": "inventory_stock_level",
+        "type": "gauge",
+        "labels": ["item_id"],
+        "description": "아이템별 현재 재고 수준"
+      }
+    ]
+  },
+  "kind_cluster": {
+    "config_file": "kind-config.yaml",
+    "k8s_version": "1.29",
+    "nodes": [
+      {"role": "control-plane"},
+      {"role": "worker"},
+      {"role": "worker"}
+    ],
+    "port_mappings": [
+      {"host_port": 80, "container_port": 80, "service": "NGINX Ingress HTTP"},
+      {"host_port": 443, "container_port": 443, "service": "NGINX Ingress HTTPS"},
+      {"host_port": 3000, "container_port": 30000, "service": "Grafana"},
+      {"host_port": 16686, "container_port": 30001, "service": "Jaeger UI"},
+      {"host_port": 8090, "container_port": 30002, "service": "ArgoCD UI"}
+    ]
+  },
+  "ci_cd": {
+    "platform": "GitHub Actions",
+    "registry": "ghcr.io",
+    "image_tag_strategy": "commit-sha",
+    "ci_workflow": {
+      "trigger": "pull_request",
+      "file": ".github/workflows/ci.yaml",
+      "steps": [
+        {"name": "Python lint", "tool": "ruff", "paths": ["apps/order-svc/", "apps/inventory-svc/"]},
+        {"name": "Python test", "tool": "pytest", "paths": ["apps/order-svc/", "apps/inventory-svc/"]},
+        {"name": "Go vet", "tool": "go vet", "paths": ["apps/frontend-svc/"]},
+        {"name": "Go test", "tool": "go test", "paths": ["apps/frontend-svc/"]},
+        {"name": "Docker build (no push)", "tool": "docker"},
+        {"name": "Helm lint", "tool": "helm", "paths": ["infra/helm/*/"]
+        }
+      ]
+    },
+    "cd_workflow": {
+      "trigger": "push to main",
+      "file": ".github/workflows/cd.yaml",
+      "steps": [
+        {"name": "Docker build + push", "tool": "docker", "output": "ghcr.io/<owner>/mini-obs-<svc>:<commit-sha>"},
+        {"name": "Update values.yaml image tag", "file": "infra/helm/sample-apps/values.yaml"},
+        {"name": "ArgoCD auto sync", "trigger": "git change detection"}
+      ]
+    }
+  },
+  "otel_trace_context": {
+    "propagation_format": "W3C TraceContext",
+    "headers": ["traceparent", "tracestate"],
+    "trace_id_length": 32,
+    "span_id_length": 16,
+    "structured_log_fields": ["trace_id", "span_id", "service", "level", "message", "timestamp"],
+    "call_chain": [
+      {"service": "frontend-svc", "span_type": "root", "parent": null},
+      {"service": "order-svc", "span_type": "child", "parent": "frontend-svc"},
+      {"service": "inventory-svc", "span_type": "leaf", "parent": "order-svc"}
+    ]
+  }
+}

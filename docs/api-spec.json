@@ -1,0 +1,512 @@
+{
+  "version": "1.0",
+  "project": "mini-obs-platform",
+  "description": "샘플 마이크로서비스 HTTP 엔드포인트 + 인프라 컴포넌트 설정 스펙",
+  "services": {
+    "frontend-svc": {
+      "language": "Go 1.22",
+      "port": 8080,
+      "namespace": "observability-demo"
+    },
+    "order-svc": {
+      "language": "Python 3.11 + FastAPI",
+      "port": 8081,
+      "namespace": "observability-demo"
+    },
+    "inventory-svc": {
+      "language": "Python 3.11 + FastAPI",
+      "port": 8082,
+      "namespace": "observability-demo"
+    }
+  },
+  "endpoints": [
+    {
+      "service": "frontend-svc",
+      "method": "GET",
+      "path": "/api/order",
+      "description": "주문 생성 요청을 order-svc에 프록시하고 결과를 반환한다",
+      "otel_instrumented": true,
+      "procedure": [
+        "요청 수신 → OTel SDK root span 생성 (trace_id 발급)",
+        "W3C TraceContext 헤더(traceparent) 생성 및 주입",
+        "http_requests_total{method=GET, path=/api/order} 카운터 증가",
+        "order-svc로 POST http://order-svc:8081/orders 호출 (traceparent 헤더 포함)",
+        "order-svc 응답 수신",
+        "http_request_duration_seconds 히스토그램 기록",
+        "root span 완료 → OTel Collector로 OTLP gRPC 전송",
+        "응답 반환"
+      ],
+      "request": {
+        "headers": [
+          {
+            "name": "traceparent",
+            "required": false,
+            "description": "W3C TraceContext 헤더 (있으면 연결, 없으면 새 trace 시작)"
+          }
+        ]
+      },
+      "responses": {
+        "200": {
+          "description": "주문 생성 성공",
+          "example": {
+            "order_id": "ord-abc123",
+            "status": "created",
+            "item_id": "item-001",
+            "quantity": 1,
+            "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        },
+        "502": {
+          "description": "order-svc 호출 실패 (연결 거부, 타임아웃)"
+        },
+        "503": {
+          "description": "order-svc 서비스 불가 (파드 재시작 중)"
+        }
+      }
+    },
+    {
+      "service": "frontend-svc",
+      "method": "GET",
+      "path": "/api/inventory",
+      "description": "전체 재고 목록을 inventory-svc에서 조회하여 반환한다",
+      "otel_instrumented": true,
+      "procedure": [
+        "요청 수신 → OTel SDK root span 생성",
+        "W3C TraceContext 헤더 주입",
+        "inventory-svc로 GET http://inventory-svc:8082/items 호출",
+        "응답 수신 후 메트릭 기록",
+        "root span 완료 → OTLP 전송",
+        "응답 반환"
+      ],
+      "request": {
+        "headers": [
+          {
+            "name": "traceparent",
+            "required": false,
+            "description": "W3C TraceContext 헤더"
+          }
+        ]
+      },
+      "responses": {
+        "200": {
+          "description": "재고 조회 성공",
+          "example": {
+            "items": [
+              {"item_id": "item-001", "name": "Widget A", "stock": 100},
+              {"item_id": "item-002", "name": "Widget B", "stock": 50}
+            ],
+            "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        },
+        "502": {
+          "description": "inventory-svc 호출 실패"
+        }
+      }
+    },
+    {
+      "service": "frontend-svc",
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Prometheus 텍스트 형식 메트릭 노출 엔드포인트",
+      "otel_instrumented": false,
+      "procedure": [
+        "prometheus_client 레지스트리에서 현재 메트릭 스냅샷 수집",
+        "Prometheus 텍스트 형식으로 직렬화하여 반환"
+      ],
+      "responses": {
+        "200": {
+          "description": "Prometheus text/plain 메트릭",
+          "content_type": "text/plain; version=0.0.4"
+        }
+      }
+    },
+    {
+      "service": "frontend-svc",
+      "method": "GET",
+      "path": "/health",
+      "description": "K8s liveness/readiness probe 헬스체크",
+      "otel_instrumented": false,
+      "procedure": [
+        "서비스 내부 상태 확인",
+        "상태 JSON 반환"
+      ],
+      "responses": {
+        "200": {
+          "description": "서비스 정상",
+          "example": {"status": "ok", "service": "frontend-svc"}
+        }
+      }
+    },
+    {
+      "service": "order-svc",
+      "method": "POST",
+      "path": "/orders",
+      "description": "신규 주문을 생성하고 재고를 차감한다",
+      "otel_instrumented": true,
+      "procedure": [
+        "요청 바디 유효성 검증 (item_id, quantity 필수)",
+        "traceparent 헤더에서 parent span context 추출 → child span 생성",
+        "orders_created_total 카운터 증가",
+        "order_processing_duration_seconds 히스토그램 타이머 시작",
+        "inventory-svc로 PUT /items/{item_id}/stock 호출하여 재고 차감",
+        "재고 부족(409) 시 주문 실패 처리",
+        "주문 ID 생성 (UUID v4)",
+        "히스토그램 타이머 종료 기록",
+        "OTel child span 완료 → OTLP 전송",
+        "구조화 로그 출력 (trace_id, span_id, order_id 포함)",
+        "201 Created 응답 반환"
+      ],
+      "request": {
+        "content_type": "application/json",
+        "fields": [
+          {
+            "name": "item_id",
+            "type": "string",
+            "required": true,
+            "description": "주문할 아이템 ID"
+          },
+          {
+            "name": "quantity",
+            "type": "integer",
+            "required": true,
+            "minimum": 1,
+            "description": "주문 수량 (최소 1)"
+          },
+          {
+            "name": "customer_id",
+            "type": "string",
+            "required": false,
+            "default": "anonymous",
+            "description": "고객 식별자"
+          }
+        ]
+      },
+      "responses": {
+        "201": {
+          "description": "주문 생성 성공",
+          "example": {
+            "order_id": "ord-550e8400-e29b-41d4-a716-446655440000",
+            "item_id": "item-001",
+            "quantity": 2,
+            "status": "created",
+            "created_at": "2026-03-28T10:00:00Z",
+            "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        },
+        "400": {
+          "description": "요청 바디 유효성 실패 (item_id 누락, quantity < 1)"
+        },
+        "409": {
+          "description": "재고 부족 (inventory-svc에서 409 반환)"
+        },
+        "502": {
+          "description": "inventory-svc 호출 실패"
+        }
+      }
+    },
+    {
+      "service": "order-svc",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "description": "특정 주문 정보를 조회한다",
+      "otel_instrumented": true,
+      "procedure": [
+        "path parameter order_id 유효성 확인",
+        "traceparent 헤더에서 span context 추출 → child span 생성",
+        "인메모리 주문 저장소에서 order_id 조회 (MVP: 영구 저장 없음)",
+        "없으면 404 반환",
+        "span 완료 → OTLP 전송"
+      ],
+      "request": {
+        "path_params": [
+          {
+            "name": "order_id",
+            "type": "string",
+            "required": true,
+            "description": "주문 고유 ID"
+          }
+        ]
+      },
+      "responses": {
+        "200": {
+          "description": "주문 조회 성공",
+          "example": {
+            "order_id": "ord-550e8400-e29b-41d4-a716-446655440000",
+            "item_id": "item-001",
+            "quantity": 2,
+            "status": "created",
+            "created_at": "2026-03-28T10:00:00Z"
+          }
+        },
+        "404": {
+          "description": "해당 order_id가 존재하지 않음"
+        }
+      }
+    },
+    {
+      "service": "order-svc",
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Prometheus 메트릭 노출 (orders_created_total, order_processing_duration_seconds 포함)",
+      "otel_instrumented": false,
+      "procedure": [
+        "prometheus_client 레지스트리 스냅샷 수집",
+        "Prometheus 텍스트 형식으로 반환"
+      ],
+      "responses": {
+        "200": {
+          "description": "Prometheus text/plain 메트릭",
+          "content_type": "text/plain; version=0.0.4"
+        }
+      }
+    },
+    {
+      "service": "order-svc",
+      "method": "GET",
+      "path": "/health",
+      "description": "헬스체크",
+      "otel_instrumented": false,
+      "procedure": ["서비스 상태 확인 및 JSON 반환"],
+      "responses": {
+        "200": {
+          "description": "서비스 정상",
+          "example": {"status": "ok", "service": "order-svc"}
+        }
+      }
+    },
+    {
+      "service": "inventory-svc",
+      "method": "GET",
+      "path": "/items",
+      "description": "전체 재고 아이템 목록을 반환한다",
+      "otel_instrumented": true,
+      "procedure": [
+        "traceparent 헤더에서 span context 추출 → child span 생성",
+        "인메모리 재고 저장소에서 전체 아이템 조회 (MVP: 초기값 하드코딩)",
+        "inventory_stock_level Gauge 현재값 포함",
+        "span 완료 → OTLP 전송"
+      ],
+      "responses": {
+        "200": {
+          "description": "재고 목록 조회 성공",
+          "example": {
+            "items": [
+              {"item_id": "item-001", "name": "Widget A", "stock": 98},
+              {"item_id": "item-002", "name": "Widget B", "stock": 50}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "service": "inventory-svc",
+      "method": "PUT",
+      "path": "/items/{item_id}/stock",
+      "description": "특정 아이템의 재고를 차감한다 (order-svc에서 호출)",
+      "otel_instrumented": true,
+      "procedure": [
+        "path parameter item_id 유효성 확인",
+        "traceparent 헤더에서 span context 추출 → child span 생성",
+        "요청 바디 delta 값 유효성 검증 (0이면 400)",
+        "인메모리 재고 저장소에서 item_id 조회",
+        "없으면 404 반환",
+        "current_stock + delta < 0 이면 409 (재고 부족) 반환",
+        "재고 업데이트 및 inventory_stock_level{item_id} Gauge 갱신",
+        "leaf span 완료 → OTLP 전송",
+        "200 OK 반환"
+      ],
+      "request": {
+        "content_type": "application/json",
+        "path_params": [
+          {
+            "name": "item_id",
+            "type": "string",
+            "required": true,
+            "description": "재고를 변경할 아이템 ID"
+          }
+        ],
+        "fields": [
+          {
+            "name": "delta",
+            "type": "integer",
+            "required": true,
+            "description": "재고 변화량 (음수: 차감, 양수: 증가, 0 불가)"
+          }
+        ]
+      },
+      "responses": {
+        "200": {
+          "description": "재고 업데이트 성공",
+          "example": {
+            "item_id": "item-001",
+            "previous_stock": 100,
+            "current_stock": 98,
+            "delta": -2
+          }
+        },
+        "400": {
+          "description": "delta 값 누락 또는 0"
+        },
+        "404": {
+          "description": "item_id가 존재하지 않음"
+        },
+        "409": {
+          "description": "재고 부족 (current_stock + delta < 0)"
+        }
+      }
+    },
+    {
+      "service": "inventory-svc",
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Prometheus 메트릭 노출 (inventory_stock_level Gauge 포함)",
+      "otel_instrumented": false,
+      "procedure": [
+        "prometheus_client 레지스트리 스냅샷 수집",
+        "Prometheus 텍스트 형식으로 반환"
+      ],
+      "responses": {
+        "200": {
+          "description": "Prometheus text/plain 메트릭",
+          "content_type": "text/plain; version=0.0.4"
+        }
+      }
+    },
+    {
+      "service": "inventory-svc",
+      "method": "GET",
+      "path": "/health",
+      "description": "헬스체크",
+      "otel_instrumented": false,
+      "procedure": ["서비스 상태 확인 및 JSON 반환"],
+      "responses": {
+        "200": {
+          "description": "서비스 정상",
+          "example": {"status": "ok", "service": "inventory-svc"}
+        }
+      }
+    }
+  ],
+  "infrastructure_specs": {
+    "prometheus_scrape": {
+      "scrape_interval": "15s",
+      "scrape_targets": [
+        {"service": "frontend-svc", "port": 8080, "path": "/metrics"},
+        {"service": "order-svc", "port": 8081, "path": "/metrics"},
+        {"service": "inventory-svc", "port": 8082, "path": "/metrics"},
+        {"service": "otel-collector", "port": 8889, "path": "/metrics"},
+        {"service": "kube-state-metrics", "path": "/metrics"},
+        {"service": "node-exporter", "path": "/metrics"}
+      ],
+      "service_monitor_selector": "serviceMonitorSelectorNilUsesHelmValues=false"
+    },
+    "alertmanager_rules": [
+      {
+        "name": "HighErrorRate",
+        "expr": "rate(http_requests_total{status_code=~\"5..\",namespace=\"observability-demo\"}[5m]) / rate(http_requests_total{namespace=\"observability-demo\"}[5m]) > 0.05",
+        "for": "2m",
+        "severity": "critical",
+        "description": "서비스 에러율 5% 초과"
+      },
+      {
+        "name": "HighP99Latency",
+        "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 1.0",
+        "for": "2m",
+        "severity": "warning",
+        "description": "P99 응답시간 1초 초과"
+      },
+      {
+        "name": "PodNotReady",
+        "expr": "kube_pod_status_ready{condition=\"true\",namespace=\"observability-demo\"} == 0",
+        "for": "1m",
+        "severity": "critical",
+        "description": "파드 Ready 상태 아님"
+      }
+    ],
+    "grafana_dashboards": [
+      {
+        "name": "RED Metrics Overview",
+        "file": "red-metrics.json",
+        "datasource": "Prometheus",
+        "panels": [
+          {
+            "title": "Request Rate",
+            "type": "timeseries",
+            "query": "rate(http_requests_total[5m])"
+          },
+          {
+            "title": "Error Rate",
+            "type": "timeseries",
+            "query": "rate(http_requests_total{status_code=~\"5..\"}[5m]) / rate(http_requests_total[5m])"
+          },
+          {
+            "title": "P99 Duration",
+            "type": "timeseries",
+            "query": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))"
+          }
+        ]
+      },
+      {
+        "name": "Service Map",
+        "file": "service-map.json",
+        "datasource": "Jaeger",
+        "panels": [
+          {
+            "title": "Service Topology",
+            "type": "nodeGraph"
+          }
+        ]
+      },
+      {
+        "name": "Logs & Traces Explorer",
+        "file": "logs-explorer.json",
+        "datasource": "Loki",
+        "panels": [
+          {
+            "title": "Error Logs",
+            "type": "logs",
+            "query": "{namespace=\"observability-demo\"} | json | level=\"error\""
+          }
+        ]
+      }
+    ],
+    "otel_collector": {
+      "receivers": {
+        "otlp_grpc_endpoint": "0.0.0.0:4317",
+        "otlp_http_endpoint": "0.0.0.0:4318"
+      },
+      "processors": {
+        "memory_limiter_mib": 256,
+        "batch_timeout_seconds": 10,
+        "batch_size": 8192
+      },
+      "exporters": {
+        "jaeger_endpoint": "jaeger-collector.tracing.svc.cluster.local:14250",
+        "prometheus_endpoint": "0.0.0.0:8889"
+      },
+      "pipelines": {
+        "traces": ["otlp → memory_limiter → batch → jaeger"],
+        "metrics": ["otlp → memory_limiter → batch → prometheus"]
+      }
+    },
+    "fluent_bit": {
+      "input": {
+        "type": "tail",
+        "path": "/var/log/containers/*.log",
+        "parser": ["docker", "cri"],
+        "mem_buf_limit": "5MB"
+      },
+      "filter": {
+        "type": "kubernetes",
+        "merge_log": true,
+        "inject_fields": ["namespace_name", "pod_name", "container_name"]
+      },
+      "output": {
+        "type": "loki",
+        "host": "loki.monitoring.svc.cluster.local",
+        "port": 3100,
+        "labels": "namespace, pod, container"
+      }
+    }
+  }
+}

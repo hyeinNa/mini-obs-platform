@@ -1,0 +1,94 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-svc
+  namespace: observability-demo
+  labels:
+    app: inventory-svc
+    app.kubernetes.io/part-of: mini-obs-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-svc
+  template:
+    metadata:
+      labels:
+        app: inventory-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: inventory-svc
+          image: ghcr.io/owner/mini-obs-inventory-svc:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+              protocol: TCP
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector-opentelemetry-collector.tracing:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "inventory-svc"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-svc
+  namespace: observability-demo
+  labels:
+    app: inventory-svc
+spec:
+  selector:
+    app: inventory-svc
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+      protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: inventory-svc
+  namespace: observability-demo
+  labels:
+    app: inventory-svc
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: inventory-svc
+  namespaceSelector:
+    matchNames:
+      - observability-demo
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

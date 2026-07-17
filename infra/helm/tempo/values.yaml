@@ -1,0 +1,32 @@
+## Grafana Tempo Helm values
+## Chart: grafana/tempo
+## Namespace: tracing
+## Mode: Single binary (MVP)
+
+tempo:
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  metrics_generator:
+    enabled: true
+    storage:
+      path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://kube-prometheus-stack-prometheus.monitoring:9090/api/v1/write
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

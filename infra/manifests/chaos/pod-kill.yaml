@@ -1,0 +1,23 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: inventory-svc-pod-kill
+  namespace: observability-demo
+  labels:
+    app.kubernetes.io/part-of: mini-obs-platform
+    chaos-experiment: pod-kill
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - observability-demo
+    labelSelectors:
+      app: inventory-svc
+  duration: "1m"
+  gracePeriod: 0
+  # Observation points:
+  # 1. Grafana: inventory-svc error rate spikes to 100%
+  # 2. PodNotReady alert fires after 1m (inventory-svc pod not ready)
+  # 3. HighErrorRate alert fires after 2m (cascade: order-svc 502s)
+  # 4. Jaeger: failed trace spans visible for inventory-svc calls

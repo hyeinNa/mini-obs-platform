@@ -1,0 +1,26 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: order-svc-network-delay
+  namespace: observability-demo
+  labels:
+    app.kubernetes.io/part-of: mini-obs-platform
+    chaos-experiment: network-delay
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - observability-demo
+    labelSelectors:
+      app: order-svc
+  delay:
+    latency: "500ms"
+    jitter: "100ms"
+    correlation: "25"
+  direction: to
+  duration: "5m"
+  # Observation points:
+  # 1. Grafana RED dashboard: P99 latency rises above 500ms within ~30s
+  # 2. HighP99Latency alert fires after 2m (threshold: 1.0s)
+  # 3. Jaeger: traces show slow spans in order-svc

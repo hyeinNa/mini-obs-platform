@@ -1,0 +1,1497 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Observability Pipeline Demo | mini-obs-platform</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2128;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --accent:    #58a6ff;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --yellow:    #d29922;
+      --purple:    #bc8cff;
+      --orange:    #ffa657;
+      --cyan:      #39d0d8;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+
+    .logo {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+
+    .site-title { font-size: 15px; font-weight: 700; }
+    .site-subtitle { font-size: 11px; color: var(--muted); }
+
+    .header-right { display: flex; align-items: center; gap: 20px; }
+
+    .refresh-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted);
+    }
+
+    .pulse-dot {
+      width: 8px; height: 8px;
+      background: var(--green); border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.75); }
+    }
+
+    /* ── Layout ── */
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 28px 28px 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    section-title {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 14px 20px 13px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .card-badge {
+      font-size: 11px; font-weight: 500;
+      padding: 2px 9px; border-radius: 12px;
+      background: rgba(88,166,255,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(88,166,255,0.2);
+    }
+
+    .card-badge.green {
+      background: rgba(63,185,80,0.1); color: var(--green);
+      border-color: rgba(63,185,80,0.25);
+    }
+    .card-badge.red {
+      background: rgba(248,81,73,0.1); color: var(--red);
+      border-color: rgba(248,81,73,0.25);
+    }
+    .card-badge.yellow {
+      background: rgba(210,153,34,0.1); color: var(--yellow);
+      border-color: rgba(210,153,34,0.25);
+    }
+
+    .card-body { padding: 20px; }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; padding: 28px; color: var(--muted); font-size: 13px;
+    }
+
+    .empty-state {
+      text-align: center; padding: 28px; color: var(--muted); font-size: 13px;
+    }
+
+    /* ════════════════════════════════════
+       SECTION 1: Pipeline Flow Diagram
+    ════════════════════════════════════ */
+    .pipeline-diagram {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+
+    .pipeline-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .pipeline-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 4px;
+      flex-shrink: 0;
+      width: 48px;
+      position: relative;
+    }
+
+    .arrow-line {
+      position: absolute;
+      top: 50%;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--border), var(--accent));
+      transform: translateY(-50%);
+    }
+
+    .arrow-head {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0; height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 7px solid var(--accent);
+    }
+
+    .arrow-label {
+      position: absolute;
+      top: -20px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 9px;
+      color: var(--muted);
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    .pipeline-node {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      text-align: center;
+      width: 100%;
+      transition: border-color 0.2s;
+    }
+
+    .pipeline-node:hover { border-color: var(--accent); }
+
+    .pipeline-node.blue   { border-left: 3px solid var(--accent); }
+    .pipeline-node.green  { border-left: 3px solid var(--green); }
+    .pipeline-node.orange { border-left: 3px solid var(--orange); }
+
+    .pipeline-node-icon { font-size: 22px; margin-bottom: 4px; }
+    .pipeline-node-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .pipeline-node-sub  { font-size: 10px; color: var(--muted); }
+
+    .pipeline-signals {
+      display: flex; flex-direction: column; gap: 4px; width: 100%;
+    }
+
+    .signal-tag {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px; font-weight: 500;
+    }
+
+    .signal-tag.metrics { background: rgba(248,161,79,0.1); color: var(--orange); border: 1px solid rgba(248,161,79,0.2); }
+    .signal-tag.traces  { background: rgba(88,166,255,0.1); color: var(--accent); border: 1px solid rgba(88,166,255,0.2); }
+    .signal-tag.logs    { background: rgba(63,185,80,0.1);  color: var(--green);  border: 1px solid rgba(63,185,80,0.2); }
+
+    .signal-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .signal-dot.metrics { background: var(--orange); }
+    .signal-dot.traces  { background: var(--accent); }
+    .signal-dot.logs    { background: var(--green); }
+
+    .pillar-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .pillar-card {
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .pillar-card.metrics { background: rgba(248,161,79,0.08); border: 1px solid rgba(248,161,79,0.2); }
+    .pillar-card.traces  { background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.2); }
+    .pillar-card.logs    { background: rgba(63,185,80,0.08);  border: 1px solid rgba(63,185,80,0.2); }
+
+    .pillar-icon { font-size: 24px; }
+    .pillar-name { font-size: 13px; font-weight: 600; }
+    .pillar-tool { font-size: 11px; color: var(--muted); }
+    .pillar-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    .grafana-banner {
+      background: rgba(188,140,255,0.08);
+      border: 1px solid rgba(188,140,255,0.2);
+      border-radius: 10px;
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 14px;
+      margin-top: 8px;
+    }
+
+    .grafana-banner-icon { font-size: 28px; }
+    .grafana-banner-title { font-size: 14px; font-weight: 600; color: var(--purple); }
+    .grafana-banner-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ════════════════════════════════════
+       SECTION 2: Live Request Tracing
+    ════════════════════════════════════ */
+    .trace-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .trace-hero-label {
+      font-size: 12px; color: var(--muted); text-align: center;
+    }
+
+    .btn-send-request {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 36px;
+      background: linear-gradient(135deg, rgba(88,166,255,0.2), rgba(188,140,255,0.2));
+      border: 1px solid rgba(88,166,255,0.4);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 15px; font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-send-request:hover {
+      background: linear-gradient(135deg, rgba(88,166,255,0.3), rgba(188,140,255,0.3));
+      border-color: rgba(88,166,255,0.7);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(88,166,255,0.2);
+    }
+
+    .btn-send-request:active { transform: scale(0.98); }
+    .btn-send-request:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-send-icon { font-size: 18px; }
+
+    /* Trace waterfall */
+    #traceWaterfall {
+      padding: 20px;
+    }
+
+    .waterfall-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .waterfall-title {
+      font-size: 13px; font-weight: 600;
+    }
+
+    .trace-id-badge {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      padding: 3px 10px;
+      background: rgba(88,166,255,0.1);
+      border: 1px solid rgba(88,166,255,0.2);
+      border-radius: 6px;
+      color: var(--accent);
+      cursor: pointer;
+    }
+
+    .waterfall-timeline {
+      display: flex; flex-direction: column; gap: 2px;
+      margin-bottom: 20px;
+    }
+
+    .waterfall-row {
+      display: grid;
+      grid-template-columns: 200px 1fr 72px;
+      align-items: center;
+      gap: 12px;
+      padding: 5px 0;
+      border-radius: 6px;
+      transition: background 0.1s;
+    }
+
+    .waterfall-row:hover { background: rgba(255,255,255,0.03); }
+
+    .waterfall-label {
+      display: flex; align-items: center; gap: 6px;
+      overflow: hidden;
+    }
+
+    .waterfall-svc-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+
+    .waterfall-svc-name {
+      font-size: 11px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .waterfall-op {
+      font-size: 10px; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .waterfall-bar-track {
+      position: relative;
+      height: 20px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .waterfall-bar {
+      position: absolute;
+      top: 3px; bottom: 3px;
+      border-radius: 3px;
+      min-width: 3px;
+      opacity: 0.85;
+      transition: opacity 0.2s;
+    }
+
+    .waterfall-bar:hover { opacity: 1; }
+
+    .waterfall-bar.frontend  { background: var(--accent); }
+    .waterfall-bar.order     { background: var(--green); }
+    .waterfall-bar.inventory { background: var(--orange); }
+    .waterfall-bar.unknown   { background: var(--muted); }
+
+    .waterfall-duration {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-align: right; white-space: nowrap;
+    }
+
+    .waterfall-axis {
+      display: flex; justify-content: space-between;
+      padding: 0 200px 8px 212px;
+      font-size: 10px; color: var(--muted);
+    }
+
+    .trace-explain {
+      background: rgba(88,166,255,0.06);
+      border: 1px solid rgba(88,166,255,0.15);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .trace-explain-row {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 12px;
+    }
+
+    .trace-explain-icon { font-size: 14px; flex-shrink: 0; }
+
+    .trace-explain-link {
+      color: var(--accent); text-decoration: none;
+      font-weight: 500;
+    }
+
+    .trace-explain-link:hover { text-decoration: underline; }
+
+    .trace-legend {
+      display: flex; gap: 16px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--muted);
+    }
+
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 3px;
+    }
+
+    /* ════════════════════════════════════
+       SECTION 3: RED Metrics
+    ════════════════════════════════════ */
+    .red-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+    }
+
+    .red-col-header {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .red-label-r { color: var(--accent); }
+    .red-label-e { color: var(--red); }
+    .red-label-d { color: var(--purple); }
+
+    .red-metric-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      transition: border-color 0.2s;
+    }
+
+    .red-metric-row:hover { border-color: var(--accent); }
+
+    .red-svc-info { display: flex; align-items: center; gap: 8px; }
+
+    .red-svc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .red-svc-dot.frontend  { background: var(--accent); }
+    .red-svc-dot.order     { background: var(--green); }
+    .red-svc-dot.inventory { background: var(--orange); }
+
+    .red-svc-name { font-size: 12px; font-weight: 500; }
+    .red-svc-val  { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .red-svc-val.rate     { color: var(--accent); }
+    .red-svc-val.error    { color: var(--red); }
+    .red-svc-val.duration { color: var(--purple); }
+
+    .promql-block {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .promql-label {
+      font-size: 10px; color: var(--muted);
+      margin-bottom: 4px; font-family: inherit;
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    .promql-copy {
+      cursor: pointer; color: var(--accent);
+      font-size: 10px; text-decoration: none;
+    }
+
+    .promql-copy:hover { text-decoration: underline; }
+
+    /* ════════════════════════════════════
+       SECTION 4: Service Health + Links
+    ════════════════════════════════════ */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .service-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .service-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color 0.2s;
+    }
+
+    .service-item:hover { border-color: var(--accent); }
+
+    .svc-info { display: flex; align-items: center; gap: 10px; }
+
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.up      { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,0.5); }
+    .status-dot.down    { background: var(--red);   box-shadow: 0 0 6px rgba(248,81,73,0.5); }
+    .status-dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+
+    .svc-name  { font-size: 13px; font-weight: 500; }
+    .svc-port  { font-size: 11px; color: var(--muted); }
+
+    .svc-right { display: flex; align-items: center; gap: 8px; }
+    .svc-latency { font-size: 11px; color: var(--muted); }
+
+    .svc-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; }
+    .svc-badge.up      { background: rgba(63,185,80,0.12); color: var(--green); }
+    .svc-badge.down    { background: rgba(248,81,73,0.12); color: var(--red); }
+    .svc-badge.loading { background: rgba(210,153,34,0.12); color: var(--yellow); }
+
+    .links-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+
+    .link-card {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 18px 14px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-decoration: none; color: var(--text);
+      transition: all 0.2s;
+    }
+
+    .link-card:hover {
+      border-color: var(--accent);
+      background: rgba(88,166,255,0.05);
+      transform: translateY(-2px);
+    }
+
+    .link-icon { font-size: 26px; }
+    .link-name { font-size: 13px; font-weight: 600; }
+    .link-url  { font-size: 11px; color: var(--muted); }
+
+    /* ── Misc ── */
+    .last-updated { font-size: 11px; color: var(--muted); text-align: right; margin-top: 10px; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    @media (max-width: 900px) {
+      .red-grid { grid-template-columns: 1fr; }
+      .bottom-row { grid-template-columns: 1fr; }
+      .pillar-row { grid-template-columns: 1fr; }
+      .pipeline-diagram { flex-direction: column; gap: 12px; }
+      .pipeline-connector { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">&#9741;</div>
+    <div>
+      <div class="site-title">mini-obs-platform</div>
+      <div class="site-subtitle">Observability Pipeline Demo</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="refresh-badge">
+      <div class="pulse-dot"></div>
+      <span id="refreshCountdown">15초 후 갱신</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 1: Observability Pipeline Flow
+  ═══════════════════════════════════════════ -->
+  <div>
+    <section-title>&#9642; Observability Pipeline — 데이터 흐름</section-title>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">&#128257; 파이프라인 아키텍처</span>
+        <span class="card-badge">OpenTelemetry · Prometheus · Jaeger · Loki</span>
+      </div>
+      <div class="card-body">
+
+        <!-- Service data-flow row -->
+        <div class="pipeline-diagram" style="margin-bottom: 20px;">
+
+          <!-- Client -->
+          <div class="pipeline-col" style="min-width:120px; max-width:160px;">
+            <div class="pipeline-node">
+              <div class="pipeline-node-icon">&#128100;</div>
+              <div class="pipeline-node-name">Client</div>
+              <div class="pipeline-node-sub">Browser / curl</div>
+            </div>
+          </div>
+
+          <div class="pipeline-connector">
+            <div class="arrow-line"></div>
+            <div class="arrow-head"></div>
+            <div class="arrow-label">HTTP</div>
+          </div>
+
+          <!-- frontend-svc -->
+          <div class="pipeline-col">
+            <div class="pipeline-node blue">
+              <div class="pipeline-node-icon">&#127760;</div>
+              <div class="pipeline-node-name">frontend-svc</div>
+              <div class="pipeline-node-sub">Go 1.22 · :8080</div>
+            </div>
+            <div class="pipeline-signals">
+              <div class="signal-tag metrics"><div class="signal-dot metrics"></div>Prometheus scrape</div>
+              <div class="signal-tag traces"><div class="signal-dot traces"></div>OTel → Collector</div>
+              <div class="signal-tag logs"><div class="signal-dot logs"></div>stdout → Fluent Bit</div>
+            </div>
+          </div>
+
+          <div class="pipeline-connector">
+            <div class="arrow-line"></div>
+            <div class="arrow-head"></div>
+            <div class="arrow-label">gRPC</div>
+          </div>
+
+          <!-- order-svc -->
+          <div class="pipeline-col">
+            <div class="pipeline-node green">
+              <div class="pipeline-node-icon">&#128203;</div>
+              <div class="pipeline-node-name">order-svc</div>
+              <div class="pipeline-node-sub">Python FastAPI · :8001</div>
+            </div>
+            <div class="pipeline-signals">
+              <div class="signal-tag metrics"><div class="signal-dot metrics"></div>Prometheus scrape</div>
+              <div class="signal-tag traces"><div class="signal-dot traces"></div>W3C TraceContext</div>
+              <div class="signal-tag logs"><div class="signal-dot logs"></div>structlog → Loki</div>
+            </div>
+          </div>
+
+          <div class="pipeline-connector">
+            <div class="arrow-line"></div>
+            <div class="arrow-head"></div>
+            <div class="arrow-label">HTTP</div>
+          </div>
+
+          <!-- inventory-svc -->
+          <div class="pipeline-col">
+            <div class="pipeline-node orange">
+              <div class="pipeline-node-icon">&#128230;</div>
+              <div class="pipeline-node-name">inventory-svc</div>
+              <div class="pipeline-node-sub">Python FastAPI · :8002</div>
+            </div>
+            <div class="pipeline-signals">
+              <div class="signal-tag metrics"><div class="signal-dot metrics"></div>Prometheus scrape</div>
+              <div class="signal-tag traces"><div class="signal-dot traces"></div>Span propagation</div>
+              <div class="signal-tag logs"><div class="signal-dot logs"></div>structlog → Loki</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Three pillars -->
+        <div class="pillar-row">
+          <div class="pillar-card metrics">
+            <div class="pillar-icon">&#128200;</div>
+            <div>
+              <div class="pillar-name" style="color:var(--orange);">Metrics</div>
+              <div class="pillar-tool">Prometheus + Alertmanager</div>
+              <div class="pillar-desc">Rate, Errors, Duration (RED) / 15s scrape</div>
+            </div>
+          </div>
+          <div class="pillar-card traces">
+            <div class="pillar-icon">&#128279;</div>
+            <div>
+              <div class="pillar-name" style="color:var(--accent);">Traces</div>
+              <div class="pillar-tool">OTel Collector → Jaeger</div>
+              <div class="pillar-desc">분산 트레이스 · W3C TraceContext 전파</div>
+            </div>
+          </div>
+          <div class="pillar-card logs">
+            <div class="pillar-icon">&#128220;</div>
+            <div>
+              <div class="pillar-name" style="color:var(--green);">Logs</div>
+              <div class="pillar-tool">Fluent Bit DaemonSet → Loki</div>
+              <div class="pillar-desc">구조화 로그 · trace_id 필드 포함</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grafana convergence banner -->
+        <div class="grafana-banner" style="margin-top:16px;">
+          <div class="grafana-banner-icon">&#128202;</div>
+          <div style="flex:1;">
+            <div class="grafana-banner-title">Grafana — 통합 관측 뷰</div>
+            <div class="grafana-banner-sub">Metrics · Traces · Logs 세 가지 신호를 단일 대시보드에서 통합 조회. Loki Derived Fields로 trace_id → Jaeger 자동 연결.</div>
+          </div>
+          <a href="http://localhost:3000" target="_blank" rel="noopener"
+             style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:rgba(188,140,255,0.1);border:1px solid rgba(188,140,255,0.25);border-radius:8px;color:var(--purple);font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;">
+            열기 &#8599;
+          </a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 2: Live Request Tracing
+  ═══════════════════════════════════════════ -->
+  <div>
+    <section-title>&#9642; 라이브 요청 추적 — Trace Waterfall</section-title>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">&#128257; 실시간 분산 트레이싱</span>
+        <span class="card-badge" id="traceStatusBadge">대기 중</span>
+      </div>
+
+      <div class="trace-hero">
+        <button class="btn-send-request" id="btnSendRequest" onclick="sendRequestAndTrace()">
+          <span class="btn-send-icon">&#9654;</span>
+          요청 보내기 — frontend → order → inventory
+        </button>
+        <div class="trace-hero-label">
+          버튼 클릭 시 주문 API를 호출하고, 응답의 trace_id로 Jaeger 트레이스를 자동 조회합니다
+        </div>
+      </div>
+
+      <div id="traceWaterfall">
+        <div class="empty-state" style="padding:40px;">
+          <div style="font-size:36px;margin-bottom:12px;">&#128279;</div>
+          <div style="font-weight:600;margin-bottom:6px;">트레이스 대기 중</div>
+          <div style="font-size:12px;">위 버튼을 클릭하면 trace waterfall이 여기에 표시됩니다</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 3: RED Metrics Dashboard
+  ═══════════════════════════════════════════ -->
+  <div>
+    <section-title>&#9642; RED 메트릭 대시보드 — Prometheus</section-title>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">&#128200; Rate · Errors · Duration</span>
+        <span class="card-badge" id="metricsRefreshBadge">로딩 중</span>
+      </div>
+      <div class="card-body">
+        <div class="red-grid" id="redMetricsGrid">
+          <div class="loading-row" style="grid-column:1/-1">
+            <div class="spinner"></div> Prometheus 조회 중...
+          </div>
+        </div>
+        <div class="last-updated" id="metricsLastUpdated"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 4: Service Health + Quick Links
+  ═══════════════════════════════════════════ -->
+  <div>
+    <section-title>&#9642; 서비스 상태 및 도구 바로가기</section-title>
+    <div class="bottom-row">
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">&#9679; 서비스 헬스 체크</span>
+          <span class="card-badge" id="healthBadge">확인 중...</span>
+        </div>
+        <div class="card-body">
+          <div class="service-list" id="serviceList">
+            <div class="loading-row"><div class="spinner"></div> 헬스 체크 중...</div>
+          </div>
+          <div class="last-updated" id="healthLastUpdated"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">&#128279; 외부 도구 바로가기</span>
+        </div>
+        <div class="card-body">
+          <div class="links-grid">
+            <a class="link-card" href="http://localhost:3000" target="_blank" rel="noopener">
+              <span class="link-icon">&#128202;</span>
+              <span class="link-name">Grafana</span>
+              <span class="link-url">localhost:3000</span>
+            </a>
+            <a class="link-card" href="http://localhost:16686" target="_blank" rel="noopener">
+              <span class="link-icon">&#128269;</span>
+              <span class="link-name">Jaeger UI</span>
+              <span class="link-url">localhost:16686</span>
+            </a>
+            <a class="link-card" href="http://localhost:9090" target="_blank" rel="noopener">
+              <span class="link-icon">&#128307;</span>
+              <span class="link-name">Prometheus</span>
+              <span class="link-url">localhost:9090</span>
+            </a>
+            <a class="link-card" href="https://localhost:8090" target="_blank" rel="noopener">
+              <span class="link-icon">&#9654;</span>
+              <span class="link-name">ArgoCD</span>
+              <span class="link-url">localhost:8090</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<script>
+"use strict";
+
+// ── Constants ────────────────────────────────────────────────
+const BASE = window.location.origin;
+
+const SERVICES = [
+  { name: "frontend-svc",  url: `${BASE}/proxy/frontend/health`,  colorClass: "frontend" },
+  { name: "order-svc",     url: `${BASE}/proxy/order/health`,     colorClass: "order" },
+  { name: "inventory-svc", url: `${BASE}/proxy/inventory/health`, colorClass: "inventory" },
+];
+
+const SVC_COLORS = {
+  "frontend-svc":  { cls: "frontend",  hex: "#58a6ff" },
+  "order-svc":     { cls: "order",     hex: "#3fb950" },
+  "inventory-svc": { cls: "inventory", hex: "#ffa657" },
+};
+
+// ── Helpers ──────────────────────────────────────────────────
+async function fetchWithTimeout(url, opts = {}, ms = 4000) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { ...opts, signal: ctrl.signal });
+    clearTimeout(tid);
+    return res;
+  } catch (e) {
+    clearTimeout(tid);
+    throw e;
+  }
+}
+
+function formatDuration(microseconds) {
+  if (microseconds == null || isNaN(microseconds)) return "—";
+  const ms = microseconds / 1000;
+  if (ms < 1)    return `${microseconds}µs`;
+  if (ms < 1000) return `${ms.toFixed(1)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function nowStr() {
+  return new Date().toLocaleTimeString("ko-KR");
+}
+
+// ── Prometheus ───────────────────────────────────────────────
+async function queryProm(q) {
+  try {
+    const res = await fetchWithTimeout(
+      `${BASE}/proxy/prometheus/api/v1/query?query=${encodeURIComponent(q)}`
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (j.status !== "success") return null;
+    const d = j.data;
+    if (d.resultType === "scalar") return d.result[1];
+    if (d.resultType === "vector" && d.result.length > 0) return d.result[0].value[1];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function queryPromPerService(q, labelKey = "job") {
+  try {
+    const res = await fetchWithTimeout(
+      `${BASE}/proxy/prometheus/api/v1/query?query=${encodeURIComponent(q)}`
+    );
+    if (!res.ok) return {};
+    const j = await res.json();
+    if (j.status !== "success" || j.data.resultType !== "vector") return {};
+    const out = {};
+    for (const r of j.data.result) {
+      const svc = r.metric[labelKey] || r.metric["service"] || "unknown";
+      out[svc] = r.value[1];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function fmtRate(v) {
+  if (v == null) return "—";
+  const n = parseFloat(v);
+  if (isNaN(n)) return "—";
+  return n < 0.001 ? "0.00" : n.toFixed(2);
+}
+
+function fmtLatency(v) {
+  if (v == null) return "—";
+  const n = parseFloat(v);
+  if (isNaN(n)) return "—";
+  if (n < 0.001) return `${(n * 1e6).toFixed(0)}µs`;
+  if (n < 1)     return `${(n * 1000).toFixed(1)}ms`;
+  return `${n.toFixed(3)}s`;
+}
+
+// ── RED Metrics ──────────────────────────────────────────────
+const SVC_LIST = ["frontend-svc", "order-svc", "inventory-svc"];
+
+const PROMQL = {
+  rate:    (s) => `sum(rate(http_requests_total{job="${s}"}[5m]))`,
+  errors:  (s) => `sum(rate(http_requests_total{job="${s}",status_code=~"5.."}[5m]))`,
+  p50:     (s) => `histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job="${s}"}[5m])) by (le))`,
+  p99:     (s) => `histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="${s}"}[5m])) by (le))`,
+};
+
+async function refreshREDMetrics() {
+  const grid = document.getElementById("redMetricsGrid");
+  const badge = document.getElementById("metricsRefreshBadge");
+
+  // Probe Prometheus
+  const probe = await queryProm("1");
+  if (probe === null) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1;">
+        <div style="font-size:28px;margin-bottom:10px;">&#9888;</div>
+        <div>Prometheus에 연결할 수 없습니다</div>
+        <div style="font-size:12px;margin-top:4px;">/proxy/prometheus 경로 확인</div>
+      </div>`;
+    badge.textContent = "연결 실패";
+    badge.className = "card-badge red";
+    return;
+  }
+
+  // Fetch all metrics in parallel
+  const results = await Promise.all(SVC_LIST.map(async (svc) => {
+    const [rate, errors, p50, p99] = await Promise.all([
+      queryProm(PROMQL.rate(svc)),
+      queryProm(PROMQL.errors(svc)),
+      queryProm(PROMQL.p50(svc)),
+      queryProm(PROMQL.p99(svc)),
+    ]);
+    return { svc, rate, errors, p50, p99 };
+  }));
+
+  const svcDot = (svc) => {
+    const cls = svc.replace("-svc", "").replace("frontend", "frontend").replace("order", "order").replace("inventory", "inventory");
+    const map = { "frontend": "frontend", "order": "order", "inventory": "inventory" };
+    return map[cls] || "frontend";
+  };
+
+  grid.innerHTML = `
+    <!-- Rate column -->
+    <div>
+      <div class="red-col-header red-label-r">
+        &#128200; Rate <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none;letter-spacing:0;">(req/s · 5m)</span>
+      </div>
+      ${results.map(r => `
+        <div class="red-metric-row">
+          <div class="red-svc-info">
+            <div class="red-svc-dot ${svcDot(r.svc)}"></div>
+            <div class="red-svc-name">${r.svc}</div>
+          </div>
+          <div class="red-svc-val rate">${fmtRate(r.rate)}</div>
+        </div>
+      `).join("")}
+      <div class="promql-label">
+        <span>PromQL</span>
+        <span class="promql-copy" onclick="copyPromQL(this)" data-q="${escHtml(PROMQL.rate("&lt;svc&gt;"))}">복사</span>
+      </div>
+      <div class="promql-block">${escHtml('sum(rate(http_requests_total{job="<svc>"}[5m]))')}</div>
+    </div>
+
+    <!-- Errors column -->
+    <div>
+      <div class="red-col-header red-label-e">
+        &#128308; Errors <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none;letter-spacing:0;">(5xx req/s · 5m)</span>
+      </div>
+      ${results.map(r => `
+        <div class="red-metric-row">
+          <div class="red-svc-info">
+            <div class="red-svc-dot ${svcDot(r.svc)}"></div>
+            <div class="red-svc-name">${r.svc}</div>
+          </div>
+          <div class="red-svc-val error">${fmtRate(r.errors)}</div>
+        </div>
+      `).join("")}
+      <div class="promql-label">
+        <span>PromQL</span>
+        <span class="promql-copy" onclick="copyPromQL(this)" data-q="${escHtml(PROMQL.errors("&lt;svc&gt;"))}">복사</span>
+      </div>
+      <div class="promql-block">${escHtml('sum(rate(http_requests_total{job="<svc>",status_code=~"5.."}[5m]))')}</div>
+    </div>
+
+    <!-- Duration column -->
+    <div>
+      <div class="red-col-header red-label-d">
+        &#9203; Duration <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none;letter-spacing:0;">(P50 / P99)</span>
+      </div>
+      ${results.map(r => `
+        <div class="red-metric-row">
+          <div class="red-svc-info">
+            <div class="red-svc-dot ${svcDot(r.svc)}"></div>
+            <div class="red-svc-name">${r.svc}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;">
+            <div class="red-svc-val duration" style="font-size:16px;">${fmtLatency(r.p99)}</div>
+            <div style="font-size:10px;color:var(--muted);">P50: ${fmtLatency(r.p50)}</div>
+          </div>
+        </div>
+      `).join("")}
+      <div class="promql-label"><span>PromQL (P99)</span></div>
+      <div class="promql-block">${escHtml('histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="<svc>"}[5m])) by (le))')}</div>
+    </div>
+  `;
+
+  badge.textContent = `갱신: ${nowStr()}`;
+  badge.className = "card-badge green";
+  document.getElementById("metricsLastUpdated").textContent = `마지막 갱신: ${nowStr()}`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function copyPromQL(el) {
+  const q = el.dataset.q.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  navigator.clipboard.writeText(q).then(() => {
+    el.textContent = "복사됨!";
+    setTimeout(() => { el.textContent = "복사"; }, 1500);
+  }).catch(() => {});
+}
+
+// ── Health Checks ────────────────────────────────────────────
+async function refreshHealth() {
+  const list = document.getElementById("serviceList");
+  const badge = document.getElementById("healthBadge");
+
+  const checks = await Promise.all(SERVICES.map(async (svc) => {
+    const start = performance.now();
+    try {
+      const res = await fetchWithTimeout(svc.url, {}, 5000);
+      const latency = Math.round(performance.now() - start);
+      return { svc, status: res.ok ? "up" : "down", latency, code: res.status };
+    } catch {
+      return { svc, status: "down", latency: null, code: null };
+    }
+  }));
+
+  const upCount = checks.filter(c => c.status === "up").length;
+
+  badge.textContent = `${upCount}/${checks.length} 정상`;
+  if (upCount === checks.length) {
+    badge.className = "card-badge green";
+  } else if (upCount === 0) {
+    badge.className = "card-badge red";
+  } else {
+    badge.className = "card-badge yellow";
+  }
+
+  list.innerHTML = checks.map(c => `
+    <div class="service-item">
+      <div class="svc-info">
+        <div class="status-dot ${c.status}"></div>
+        <div>
+          <div class="svc-name">${c.svc.name}</div>
+          <div class="svc-port">${c.svc.url.replace(BASE, "")}</div>
+        </div>
+      </div>
+      <div class="svc-right">
+        ${c.latency != null ? `<span class="svc-latency">${c.latency}ms</span>` : ""}
+        <span class="svc-badge ${c.status}">
+          ${c.status === "up" ? "UP" : "DOWN"}${c.code != null ? ` · ${c.code}` : ""}
+        </span>
+      </div>
+    </div>
+  `).join("");
+
+  document.getElementById("healthLastUpdated").textContent = `마지막 갱신: ${nowStr()}`;
+}
+
+// ── Live Request + Trace Waterfall ───────────────────────────
+async function sendRequestAndTrace() {
+  const btn = document.getElementById("btnSendRequest");
+  const badge = document.getElementById("traceStatusBadge");
+  const wf = document.getElementById("traceWaterfall");
+
+  btn.disabled = true;
+  badge.textContent = "요청 중...";
+  badge.className = "card-badge yellow";
+
+  wf.innerHTML = `<div class="loading-row"><div class="spinner"></div> 요청 전송 중...</div>`;
+
+  let traceId = null;
+  let orderResp = null;
+
+  // Step 1: Call the order API
+  try {
+    const res = await fetchWithTimeout(`${BASE}/proxy/frontend/api/order`, {}, 15000);
+    const text = await res.text();
+    try { orderResp = JSON.parse(text); } catch { orderResp = { raw: text }; }
+
+    // Extract trace_id from various common response shapes
+    traceId = orderResp?.trace_id
+           || orderResp?.traceId
+           || orderResp?.traceid
+           || orderResp?.["trace-id"]
+           || null;
+
+    badge.textContent = res.ok ? `HTTP ${res.status}` : `HTTP ${res.status} (실패)`;
+    badge.className = res.ok ? "card-badge green" : "card-badge red";
+  } catch (err) {
+    badge.textContent = "연결 실패";
+    badge.className = "card-badge red";
+    wf.innerHTML = `
+      <div class="empty-state" style="padding:36px;">
+        <div style="font-size:28px;margin-bottom:10px;">&#9888;</div>
+        <div style="font-weight:600;margin-bottom:6px;">frontend-svc 연결 실패</div>
+        <div style="font-size:12px;">서비스가 실행 중인지 확인하세요. (${err.message})</div>
+      </div>`;
+    btn.disabled = false;
+    return;
+  }
+
+  // Step 2: If we have a trace_id, fetch from Jaeger
+  if (traceId) {
+    badge.textContent = "트레이스 조회 중...";
+    badge.className = "card-badge yellow";
+    wf.innerHTML = `<div class="loading-row"><div class="spinner"></div> Jaeger에서 트레이스 조회 중...</div>`;
+
+    await new Promise(r => setTimeout(r, 5000)); // wait for OTel batch + Jaeger indexing
+
+    try {
+      const res = await fetchWithTimeout(
+        `${BASE}/proxy/jaeger/api/traces/${traceId}`, {}, 8000
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      const traceData = j.data && j.data[0] ? j.data[0] : null;
+
+      if (traceData) {
+        renderWaterfall(traceData, traceId, orderResp);
+        badge.textContent = "트레이스 완료";
+        badge.className = "card-badge green";
+      } else {
+        // Retry once after 5 more seconds
+        await new Promise(r => setTimeout(r, 5000));
+        const res2 = await fetchWithTimeout(`${BASE}/proxy/jaeger/api/traces/${traceId}`, {}, 8000);
+        const j2 = await res2.json();
+        const td2 = j2.data && j2.data[0] ? j2.data[0] : null;
+        if (td2) {
+          renderWaterfall(td2, traceId, orderResp);
+          badge.textContent = "트레이스 완료";
+          badge.className = "card-badge green";
+        } else {
+          renderNoTrace(traceId, orderResp);
+        }
+        badge.textContent = "트레이스 없음";
+        badge.className = "card-badge yellow";
+      }
+    } catch (err) {
+      renderNoTrace(traceId, orderResp);
+      badge.textContent = "Jaeger 오류";
+      badge.className = "card-badge red";
+    }
+  } else {
+    // No trace_id in response — show response only
+    renderNoTraceId(orderResp);
+    badge.textContent = "trace_id 없음";
+    badge.className = "card-badge yellow";
+  }
+
+  btn.disabled = false;
+}
+
+function svcColorClass(name) {
+  if (!name) return "unknown";
+  if (name.includes("frontend")) return "frontend";
+  if (name.includes("order"))    return "order";
+  if (name.includes("inventory")) return "inventory";
+  return "unknown";
+}
+
+function svcHex(name) {
+  if (!name) return "#8b949e";
+  if (name.includes("frontend"))  return "#58a6ff";
+  if (name.includes("order"))     return "#3fb950";
+  if (name.includes("inventory")) return "#ffa657";
+  return "#8b949e";
+}
+
+function renderWaterfall(traceData, traceId, apiResp) {
+  const spans = traceData.spans || [];
+  const processes = traceData.processes || {};
+
+  if (!spans.length) {
+    renderNoTrace(traceId, apiResp);
+    return;
+  }
+
+  // Compute total trace window
+  const minStart = Math.min(...spans.map(s => s.startTime));
+  const maxEnd   = Math.max(...spans.map(s => s.startTime + s.duration));
+  const totalDur = maxEnd - minStart || 1;
+
+  // Build span tree for indentation
+  const spanMap = {};
+  spans.forEach(s => { spanMap[s.spanID] = s; });
+
+  // Sort spans by startTime
+  const sorted = [...spans].sort((a, b) => a.startTime - b.startTime);
+
+  // Compute indent levels
+  const levels = {};
+  sorted.forEach(s => {
+    const refs = s.references || [];
+    const parent = refs.find(r => r.refType === "CHILD_OF");
+    if (!parent) {
+      levels[s.spanID] = 0;
+    } else {
+      levels[s.spanID] = (levels[parent.spanID] ?? 0) + 1;
+    }
+  });
+
+  const wf = document.getElementById("traceWaterfall");
+
+  const rowsHtml = sorted.map(span => {
+    const proc = processes[span.processID] || {};
+    const svcName = proc.serviceName || "unknown";
+    const opName  = span.operationName || "";
+    const indent  = levels[span.spanID] ?? 0;
+    const offsetPct = ((span.startTime - minStart) / totalDur) * 100;
+    const widthPct  = Math.max((span.duration / totalDur) * 100, 0.5);
+    const colorCls  = svcColorClass(svcName);
+    const hex       = svcHex(svcName);
+    const labelIndent = indent * 12;
+
+    return `
+      <div class="waterfall-row" title="${svcName} · ${opName} · ${formatDuration(span.duration)}">
+        <div class="waterfall-label" style="padding-left:${labelIndent}px;">
+          <div class="waterfall-svc-dot" style="background:${hex};"></div>
+          <div>
+            <div class="waterfall-svc-name">${escHtml(svcName)}</div>
+            <div class="waterfall-op">${escHtml(opName)}</div>
+          </div>
+        </div>
+        <div class="waterfall-bar-track">
+          <div class="waterfall-bar ${colorCls}"
+               style="left:${offsetPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;"
+               title="${formatDuration(span.duration)}">
+          </div>
+        </div>
+        <div class="waterfall-duration">${formatDuration(span.duration)}</div>
+      </div>
+    `;
+  }).join("");
+
+  // Unique services for legend
+  const svcs = [...new Set(sorted.map(s => {
+    const proc = processes[s.processID] || {};
+    return proc.serviceName || "unknown";
+  }))];
+
+  const legendHtml = svcs.map(svc => `
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${svcHex(svc)};"></div>
+      ${escHtml(svc)}
+    </div>
+  `).join("");
+
+  const traceShort = traceId.slice(0, 16) + "...";
+
+  wf.innerHTML = `
+    <div class="waterfall-header">
+      <div class="waterfall-title">
+        트레이스 · ${sorted.length}개 스팬 · 총 ${formatDuration(totalDur)}
+      </div>
+      <div class="trace-id-badge" onclick="window.open('http://localhost:16686/trace/${encodeURIComponent(traceId)}','_blank')"
+           title="Jaeger에서 열기">
+        ${traceShort} &#8599;
+      </div>
+    </div>
+    <div class="trace-legend">${legendHtml}</div>
+    <div class="waterfall-axis">
+      <span>0</span>
+      <span>${formatDuration(totalDur / 4)}</span>
+      <span>${formatDuration(totalDur / 2)}</span>
+      <span>${formatDuration(totalDur * 3 / 4)}</span>
+      <span>${formatDuration(totalDur)}</span>
+    </div>
+    <div class="waterfall-timeline">${rowsHtml}</div>
+    <div class="trace-explain">
+      <div class="trace-explain-row">
+        <span class="trace-explain-icon">&#128279;</span>
+        <span>
+          <strong>trace_id:</strong>
+          <span style="font-family:monospace;color:var(--accent);">${traceId}</span>
+        </span>
+      </div>
+      <div class="trace-explain-row">
+        <span class="trace-explain-icon">&#128202;</span>
+        <span>
+          이 trace_id로
+          <a class="trace-explain-link"
+             href="http://localhost:16686/trace/${encodeURIComponent(traceId)}"
+             target="_blank" rel="noopener">Jaeger에서 트레이스 조회</a>
+          하거나,
+          <a class="trace-explain-link"
+             href="http://localhost:3000/explore?orgId=1&left=%7B%22datasource%22%3A%22Loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22expr%22%3A%22%7Btrace_id%3D%5C%22${encodeURIComponent(traceId)}%5C%22%7D%22%7D%5D%7D"
+             target="_blank" rel="noopener">Grafana Loki에서 로그 조회</a>
+          가 가능합니다.
+        </span>
+      </div>
+      <div class="trace-explain-row">
+        <span class="trace-explain-icon">&#128220;</span>
+        <span style="font-size:12px;color:var(--muted);">
+          W3C TraceContext 헤더로 전파된 동일 trace_id가 Metrics · Traces · Logs 세 신호를 연결합니다.
+        </span>
+      </div>
+      ${apiResp ? `
+      <div class="trace-explain-row">
+        <span class="trace-explain-icon">&#128203;</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted);word-break:break-all;">
+          API 응답: ${escHtml(JSON.stringify(apiResp).slice(0, 300))}
+        </span>
+      </div>` : ""}
+    </div>
+  `;
+}
+
+function renderNoTrace(traceId, apiResp) {
+  const wf = document.getElementById("traceWaterfall");
+  wf.innerHTML = `
+    <div style="padding:20px;">
+      <div class="trace-explain">
+        <div class="trace-explain-row">
+          <span class="trace-explain-icon">&#9888;</span>
+          <span>Jaeger에서 트레이스를 찾을 수 없습니다. 잠시 후 다시 시도하거나 Jaeger UI에서 직접 확인하세요.</span>
+        </div>
+        <div class="trace-explain-row">
+          <span class="trace-explain-icon">&#128279;</span>
+          <span>
+            <strong>trace_id:</strong>
+            <span style="font-family:monospace;color:var(--accent);">${traceId}</span>
+            &nbsp;
+            <a class="trace-explain-link"
+               href="http://localhost:16686/trace/${encodeURIComponent(traceId)}"
+               target="_blank" rel="noopener">Jaeger에서 조회 &#8599;</a>
+          </span>
+        </div>
+        ${apiResp ? `<div class="trace-explain-row">
+          <span class="trace-explain-icon">&#128203;</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--muted);">
+            API 응답: ${escHtml(JSON.stringify(apiResp).slice(0, 300))}
+          </span>
+        </div>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderNoTraceId(apiResp) {
+  const wf = document.getElementById("traceWaterfall");
+  wf.innerHTML = `
+    <div style="padding:20px;">
+      <div class="trace-explain">
+        <div class="trace-explain-row">
+          <span class="trace-explain-icon">&#9888;</span>
+          <span>API 응답에 <code style="font-family:monospace;color:var(--accent);">trace_id</code> 필드가 없습니다. OTel 계측 설정을 확인하세요.</span>
+        </div>
+        <div class="trace-explain-row">
+          <span class="trace-explain-icon">&#128269;</span>
+          <span>
+            <a class="trace-explain-link" href="http://localhost:16686" target="_blank" rel="noopener">
+              Jaeger UI에서 직접 검색 &#8599;
+            </a>
+          </span>
+        </div>
+        ${apiResp ? `<div class="trace-explain-row">
+          <span class="trace-explain-icon">&#128203;</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--muted);word-break:break-all;">
+            API 응답: ${escHtml(JSON.stringify(apiResp).slice(0, 400))}
+          </span>
+        </div>` : ""}
+      </div>
+    </div>`;
+}
+
+// ── Auto-refresh ──────────────────────────────────────────────
+let refreshTimer = null;
+let countdownTimer = null;
+let countdownSec = 15;
+
+function startCountdown() {
+  countdownSec = 15;
+  clearInterval(countdownTimer);
+  const el = document.getElementById("refreshCountdown");
+  countdownTimer = setInterval(() => {
+    countdownSec--;
+    if (countdownSec > 0) {
+      el.textContent = `${countdownSec}초 후 갱신`;
+    } else {
+      el.textContent = "갱신 중...";
+      clearInterval(countdownTimer);
+    }
+  }, 1000);
+}
+
+async function refreshAll() {
+  clearTimeout(refreshTimer);
+  startCountdown();
+
+  await Promise.all([
+    refreshHealth(),
+    refreshREDMetrics(),
+  ]);
+
+  refreshTimer = setTimeout(refreshAll, 15_000);
+}
+
+// ── Init ──────────────────────────────────────────────────────
+refreshAll();
+</script>
+</body>
+</html>

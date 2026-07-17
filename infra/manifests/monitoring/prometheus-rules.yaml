@@ -1,0 +1,62 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mini-obs-app-alerts
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: mini-obs-platform
+spec:
+  groups:
+    - name: mini-obs-platform.rules
+      interval: 30s
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            (
+              rate(http_requests_total{status_code=~"5..",namespace="observability-demo"}[5m])
+              /
+              rate(http_requests_total{namespace="observability-demo"}[5m])
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            namespace: observability-demo
+          annotations:
+            summary: "High HTTP error rate in {{ $labels.namespace }}"
+            description: >
+              Service {{ $labels.job }} in namespace {{ $labels.namespace }} has error rate
+              {{ $value | humanizePercentage }} which exceeds 5% threshold.
+              Check Grafana RED dashboard for details.
+
+        - alert: HighP99Latency
+          expr: |
+            histogram_quantile(
+              0.99,
+              rate(http_request_duration_seconds_bucket{namespace="observability-demo"}[5m])
+            ) > 1.0
+          for: 2m
+          labels:
+            severity: warning
+            namespace: observability-demo
+          annotations:
+            summary: "High P99 latency in {{ $labels.namespace }}"
+            description: >
+              Service {{ $labels.job }} P99 latency is {{ $value | humanizeDuration }}
+              which exceeds 1 second. Possible network chaos or slow downstream service.
+              Check Jaeger for slow traces.
+
+        - alert: PodNotReady
+          expr: |
+            kube_pod_status_ready{condition="true",namespace="observability-demo"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            namespace: observability-demo
+          annotations:
+            summary: "Pod not ready in {{ $labels.namespace }}"
+            description: >
+              Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been
+              not ready for more than 1 minute. Possible pod crash or OOMKill.
+              Check kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}.

@@ -1,0 +1,24 @@
+---
+# Expose Jaeger all-in-one UI via NodePort 30001 (mapped to localhost:16686 via KIND extraPortMappings)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-nodeport
+  namespace: tracing
+  labels:
+    app: jaeger
+    app.kubernetes.io/part-of: mini-obs-platform
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: jaeger
+  ports:
+    - name: query-http
+      port: 16686
+      targetPort: 16686
+      nodePort: 30001
+      protocol: TCP
+    - name: collector-grpc
+      port: 14250
+      targetPort: 14250
+      protocol: TCP

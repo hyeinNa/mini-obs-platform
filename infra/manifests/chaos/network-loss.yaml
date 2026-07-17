@@ -1,0 +1,25 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: inventory-svc-network-loss
+  namespace: observability-demo
+  labels:
+    app.kubernetes.io/part-of: mini-obs-platform
+    chaos-experiment: network-loss
+spec:
+  action: loss
+  mode: all
+  selector:
+    namespaces:
+      - observability-demo
+    labelSelectors:
+      app: inventory-svc
+  loss:
+    loss: "100"
+    correlation: "100"
+  direction: to
+  duration: "3m"
+  # Observation points:
+  # 1. inventory-svc readiness probe fails -> pod becomes NotReady
+  # 2. PodNotReady alert fires after 1m (kube_pod_status_ready == 0)
+  # 3. order-svc calls to inventory time out -> HighErrorRate cascade
